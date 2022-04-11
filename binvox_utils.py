@@ -20,9 +20,9 @@ Binvox to Numpy and back.
 
 
 >>> import numpy as np
->>> import binvox_rw
+>>> import binvox_utils
 >>> with open('chair.binvox', 'rb') as f:
-...     m1 = binvox_rw.read_as_3d_array(f)
+...     m1 = binvox_utils.read_as_3d_array(f)
 ...
 >>> m1.dims
 [32, 32, 32]
@@ -34,7 +34,7 @@ Binvox to Numpy and back.
 ...     m1.write(f)
 ...
 >>> with open('chair_out.binvox', 'rb') as f:
-...     m2 = binvox_rw.read_as_3d_array(f)
+...     m2 = binvox_utils.read_as_3d_array(f)
 ...
 >>> m1.dims==m2.dims
 True
@@ -46,13 +46,13 @@ True
 True
 
 >>> with open('chair.binvox', 'rb') as f:
-...     md = binvox_rw.read_as_3d_array(f)
+...     md = binvox_utils.read_as_3d_array(f)
 ...
 >>> with open('chair.binvox', 'rb') as f:
-...     ms = binvox_rw.read_as_coord_array(f)
+...     ms = binvox_utils.read_as_coord_array(f)
 ...
->>> data_ds = binvox_rw.dense_to_sparse(md.data)
->>> data_sd = binvox_rw.sparse_to_dense(ms.data, 32)
+>>> data_ds = binvox_utils.dense_to_sparse(md.data)
+>>> data_sd = binvox_utils.sparse_to_dense(ms.data, 32)
 >>> np.all(data_sd==md.data)
 True
 >>> # the ordering of elements returned by numpy.nonzero changes with axis
