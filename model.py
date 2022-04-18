@@ -84,6 +84,7 @@ class SceneEncoder(nn.Module):
 
     def __init__(self):
         super().__init__()
+        # TODO(ycho): cleanup ugly syntax
 
         # Encoder part
         # NOTE(ycho): in author's implementation, number of input channels
@@ -135,8 +136,6 @@ class SceneEncoder(nn.Module):
         # Decoder blocks: 0:3(x), 3:5, 5:7, 7:
         for i, f in enumerate(self.dec):
             if i > 0:
-                print(x.shape)
-                print(xs[-i - 1].shape)
                 x = th.cat((x, xs[-i - 1]), dim=1)
             x = f(x)
         return x
