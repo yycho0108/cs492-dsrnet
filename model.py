@@ -119,11 +119,9 @@ class SceneEncoder(nn.Module):
         split = dec_layers[:2], dec_layers[2:4], dec_layers[4:6], dec_layers[6:]
         self.dec = [nn.Sequential(*l) for l in split]
 
-    def forward(self, data: Dict[str, th.Tensor]) -> th.Tensor:
-        # data['tsdf'] = Bx[1]x128x128x48
-        # out -> Bx8x128x128x48
-        cur_obs = data['tsdf'][:, None]  # Bx1x128x128x48
-        prv_state = data['prv_state']  # Bx8x128x128x48
+    def forward(self, inputs: Dict[str, th.Tensor]) -> th.Tensor:
+        cur_obs = inputs['tsdf'][:, None]  # Bx1x128x128x48
+        prv_state = inputs['prv_state']  # Bx8x128x128x48
 
         # NOTE(ycho): assumes channel axis=1
         x = th.cat((prv_state, cur_obs), dim=1)
