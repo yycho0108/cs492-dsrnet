@@ -2,7 +2,7 @@
 
 set -ex
 
-IMAGE_TAG='cs492'
+IMAGE_TAG='cs492-dsr'
 
 # Figure out repository root.
 SCRIPT_DIR="$( cd "$( dirname $(realpath "${BASH_SOURCE[0]}") )" && pwd )"

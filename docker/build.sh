@@ -2,7 +2,7 @@
 
 set -ex
 
-IMAGE_TAG='cs492'
+IMAGE_TAG='cs492-dsr'
 
 # NOTE(ycho): Set context directory relative to this file.
 CONTEXT_DIR="$( cd "$( dirname $(realpath "${BASH_SOURCE[0]}") )/.." && pwd )"

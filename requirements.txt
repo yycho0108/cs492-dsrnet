@@ -7,5 +7,5 @@ matplotlib==3.3.0
 opencv-python==4.2.0.32
 pycuda==2019.1.2
 numba==0.50.0
-numpy==1.18.1
+numpy>=1.22
 scikit-image==0.16.2
