@@ -137,3 +137,65 @@ class SceneEncoder(nn.Module):
                 x = th.cat((x, xs[-i - 1]), dim=1)
             x = f(x)
         return x
+
+
+class MotionPredictor(nn.Module):
+    """DSR-Net Motion Predictor.
+
+    Predicts scene flow from scene representation and action embeddings.
+    """
+
+    def __init__(self, use_action: bool):
+        super().__init__()
+        # NOTE(ycho): `use_action` is only `False`
+        # while we don't have ActionEmbedding() implemented.
+        self.use_action:bool = use_action
+        self.num_objects:int = 5
+        self.num_params:int = 6
+
+        feat_layers = []
+        channels: Tuple[int, ...] = (
+                8 + (8 if self.use_action else 0),
+                8 + (8 if self.use_action else 0),
+                16 + (16 if self.use_action else 0),
+                32, 32, 32, 64, 128, 128)
+        for i, (c_in, c_out) in enumerate(zip(channels[:-1], channels[1:])):
+            stride = (2 if i in (0,1,2,6,7) else 1)
+            feat_layers.append(Conv3D(c_in,c_out,stride))
+        split = feat_layers[:1], feat_layers[1:2], feat_layers[2:3], feat_layers[3:]
+        self.feat_layers = [nn.Sequential(*l) for l in split]
+
+        self.project = nn.Conv3d(128, 128, (4,4,2))
+
+        # nn.Conv3d(
+
+        # (1) input of first three are concatenated with
+        # original action and two action embeddings <<?
+        # 2D tensor is repeated in the last channel to concatenate
+        # with 3d tensor.
+
+    def forward(self, inputs: Dict[str, th.Tensor]) -> th.Tensor:
+        if self.use_action:
+            raise NotImplementedError('')
+
+        # [... action ...]
+        # x = unsqueeze_and_concat(x, action)
+        x = self.feat_layers[0](x)
+
+        # [... action ...]
+        # unsqueeze and concat ...
+        x = self.feat_layers[1](x)
+
+        # [... action ...]
+        # unsqueeze and concat ...
+        x = self.feat_layers[2](x)
+
+        # conv20 ~ conv50
+        x = self.feat_layers[3](x)
+
+        x = self.project(x) # -> should be Bx128x1x1x1
+        x = x.squeeze(dim=(2,3,4)) # Bx128
+        x = self.transform_mlp(x) # Bx(NxP)
+        x = x.reshape(-1, self.num_objects, self.num_params) # BxNxP
+
+        # NOTE(ycho): currently editing here
