@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import torch as th
 from typing import Dict, Tuple, Union
 nn = th.nn
