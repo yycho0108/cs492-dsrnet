@@ -282,6 +282,10 @@ class SO3(nn.Module):
         cx, cy, cz = [c[..., i] for i in range(3)]
         sx, sy, sz = [s[..., i] for i in range(3)]
 
+        # NOTE(ycho):
+        # Represents Rz@Ry@Rx matrix,
+        # Which is equivalent to:
+        # rotate_yaw(rotate_pitch(rotate_roll(point))).
         r = th.stack([
             cy * cz,
             (sx * sy * cz) - (cx * sz),
