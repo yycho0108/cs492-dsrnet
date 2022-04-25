@@ -113,7 +113,7 @@ class SceneEncoder(nn.Module):
                 zip(dec_channels[:-1], dec_channels[1:])):
             # Concatenate skip connections
             c_in += residual_inputs.get(i, 0)
-            use_up = (i in (0, 2, 4, 8))
+            use_up = (i in (0, 2, 4, 6))
             dec_layers.append(Conv3D(c_in, c_out, 1, use_up=use_up))
         split = dec_layers[:2], dec_layers[2:4], dec_layers[4:6], dec_layers[6:]
         self.dec = [nn.Sequential(*l) for l in split]

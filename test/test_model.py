@@ -26,7 +26,7 @@ class TestSceneEncoder(unittest.TestCase):
         state = scene_encoder(dummy)
 
         # NOTE(ycho): shape-only test
-        assert(state.shape == (batch_size, 8, 64, 64, 24))
+        assert(state.shape == (batch_size, 8, 128, 128, 48))
 
 
 if __name__ == '__main__':
