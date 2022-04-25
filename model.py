@@ -1,7 +1,21 @@
+
+import itertools
 import torch as th
-from typing import Dict, Tuple, Union
+from typing import Dict, Tuple, Union, Iterable
 nn = th.nn
 F = nn.functional
+import einops
+
+
+def pairwise(seq: Iterable):
+    """s -> (s0,s1), (s1,s2), (s2, s3), ..."""
+    a, b = itertools.tee(seq)
+    next(b, None)
+    return zip(a, b)
+
+
+def epairwise(seq: Iterable):
+    return enumerate(pairwise(seq))
 
 
 class Conv3D(nn.Module):
@@ -139,9 +153,7 @@ class SceneEncoder(nn.Module):
             128
         )
         enc_layers: List[nn.Module] = []
-        for i, (c_in, c_out) in enumerate(zip(
-                enc_channels[: -1],
-                enc_channels[1:])):
+        for i, (c_in, c_out) in epairwise(enc_channels):
             stride = (2 if (i in (0, 1, 5, 9)) else 1)
             enc_layers.append(Conv3D(c_in, c_out, stride))
         enc_layers.append(Conv3DResBlock(128, 128))
@@ -153,8 +165,7 @@ class SceneEncoder(nn.Module):
         dec_channels: Tuple[int, ...] = (128, 64, 64, 32, 32, 16, 16, 8, 8)
         residual_inputs = {2: 64, 4: 32, 6: 16}
         dec_layers: List[nn.Module] = []
-        for i, (c_in, c_out) in enumerate(
-                zip(dec_channels[:-1], dec_channels[1:])):
+        for i, (c_in, c_out) in epairwise(dec_channels):
             # Concatenate skip connections
             c_in += residual_inputs.get(i, 0)
             use_up = (i in (0, 2, 4, 6))
@@ -185,35 +196,77 @@ class SceneEncoder(nn.Module):
 
 class MotionProjector(nn.Module):
 
-    def __init__(self):
-        self.grids: th.Tensor = None
+    def __init__(self, num_object: int):
+        super().__init__()
+        self.xyz: th.Tensor = th.stack(th.meshgrid(
+            th.arange(128),
+            th.arange(128),
+            th.arange(48)),
+            dim=0)
+        self.num_object: int = num_object
 
     def forward(self, inputs: Dict[str, th.Tensor]) -> th.Tensor:
-        mask = inputs['mask']
+        K: int = self.num_object
+        clf: th.Tensor = inputs['clf']  # ..., K, [... volume ...]
+        txn: th.Tensor = inputs['txn']  # ..., 3
+        rxn: th.Tensor = inputs['rxn']  # ..., 3x3
+        device = clf.device
 
-        # Lots of shape manipulation and normalization w.r.t `mask`
-        mask_object = torch.narrow(mask, 1, 0, K - 1)
-        sum_mask = torch.sum(mask_object, dim=(2, 3, 4))
-        heatmap = torch.unsqueeze(mask_object, dim=2) * self.grids.to(device)
-        pivot_vec = torch.sum(heatmap, dim=(
-            3, 4, 5)) / torch.unsqueeze(sum_mask, dim=2)
+        # Lots of shape manipulation and normalization w.r.t `clf`
+        clf_object = th.narrow(clf, 1, 0, K - 1)  # clf[:, :K-1]
+        voxel_count = einops.reduce(clf_object, 'b n ... -> b n', 'sum')
+        # Sum of coordinates weighted by occupancy probabilities.
+        numer = th.einsum(
+            'b k ..., d ... -> b k d',
+            clf_object,
+            self.xyz.to(device, dtype=clf_object.dtype))
+        denom = th.unsqueeze(voxel_count, dim=2)
+        # NOTE(ycho):
+        # `piv` is roughly the center of mass.
+        piv = numer / denom
 
-        # Concatenate the background dimensions.
-        # [Important] The last one is the background!
-        trans_vec = torch.cat([trans_vec, self.zero_vec.expand(
-            B, -1, -1).to(device)], dim=1).unsqueeze(-1)
-        rot_mat = torch.cat(
-            [rot_mat, self.eye_mat.expand(B, 1, -1, -1).to(device)],
-            dim=1)
-        pivot_vec = torch.cat([pivot_vec, self.zero_vec.expand(
-            B, -1, -1).to(device)], dim=1).unsqueeze(-1)
+        # Add identity transforms at the end of the channel,
+        # B (K-1) ... -> B K ...
+        txn0 = th.zeros_like(txn[:, :1])
+        txn = th.cat([txn, txn0], dim=1).unsqueeze(-1)
+        rxn0 = einops.repeat(th.eye(3, dtype=rxn.dtype),
+                             'i o -> b k i o', b=rxn.shape[0], k=1)
+        rxn = th.cat([rxn, rxn0], dim=1)
+        piv0 = th.zeros_like(piv[:, :1])
+        piv = th.cat([piv, piv0], dim=1).unsqueeze(-1)
 
-        grids_flat = self.grids_flat.to(device)
-        grids_after_flat = rot_mat @ (
-            grids_flat - pivot_vec) + pivot_vec + trans_vec
-        motion = (grids_after_flat - grids_flat).view([B, K, 3, S1, S2, S3])
+        xyz = einops.repeat(self.xyz, 'd x y z -> b k d (x y z)',
+                            b=rxn.shape[0], k=K)
+        xyz2 = rxn @ (xyz - piv) + piv + txn
+        motion = (xyz2 - xyz).view(*xyz.shape[:3], *self.xyz.shape[-3:])
+        motion = th.sum(motion * th.unsqueeze(clf, 2), 1)
+        return motion
 
-        motion = torch.sum(motion * torch.unsqueeze(mask, 2), 1)
+
+class SO3(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x: th.Tensor) -> th.Tensor:
+        """Rotation matrix from euler angle parameterization."""
+
+        c, s = th.cos(x), th.sin(x)
+        cx, cy, cz = [c[..., i] for i in range(3)]
+        sx, sy, sz = [s[..., i] for i in range(3)]
+
+        r = th.stack([
+            cy * cz,
+            (sx * sy * cz) - (cx * sz),
+            (cx * sy * cz) + (sx * sz),
+            cy * sz,
+            (sx * sy * sz) + (cx * cz),
+            (cx * sy * sz) - (sx * cz),
+            -sy,
+            (sx * cy),
+            (cx * cy)], dim=-1)
+
+        r = einops.rearrange(r, '... (i o) -> ... i o', i=3, o=3)
+        return r
 
 
 class MotionPredictor(nn.Module):
@@ -236,50 +289,80 @@ class MotionPredictor(nn.Module):
     trans_vec, rot_mat = se3(transform_param)
     """
 
-    def __init__(self, use_action: bool):
+    def __init__(self, use_action: bool, num_objects: int = 5,
+                 num_params: int = 6):
         super().__init__()
         # NOTE(ycho): `use_action` is only `False`
         # while we don't have ActionEmbedding() implemented.
         self.use_action: bool = use_action
-        self.num_objects: int = 5
-        self.num_params: int = 6
+        self.num_objects: int = num_objects
+        self.num_params: int = num_params
 
-        self.conv3d0 = Conv3D(16, 8, 2)
-        self.conv3d1 = Conv3D(16, 16, 2)
-        self.conv3d2 = Conv3D(32, 32, 2)
+        self.conv3d0 = Conv3D(8 + 8, 8, 2)
+        self.conv3d1 = Conv3D(8 + 8, 16, 2)
+        self.conv3d2 = nn.Sequential(*[
+            Conv3D(i, o, s) for
+            (i, o), s in zip(pairwise(
+                [16 + 16, 32, 32, 32, 64]), (2, 1, 1, 1))])
 
-        self.conv3d3 = Conv3D(32, 16, 1, use_up=True)
-        self.conv3d4 = Conv3D(16, 8, 1, use_up=True)
-        self.conv3d5 = Conv3D(8, 8, 1, use_up=True)
-        self.conv3d6 = nn.Conv3d(8, 3, kernel_size=3, padding=1)
-
-        self.project = nn.Conv3d(128, 128, (4, 4, 2))
+        self.conv3d3 = nn.Sequential(
+            Conv3D(64, 128, 2),
+            Conv3D(128, 128, 2),
+            nn.Conv3d(128, 128, kernel_size=(4, 4, 2))
+        )
 
         # 8, 64, 64, 64, 64 (,8)
         act1_channels = (8, 64, 64, 64, 64)
         act1_layers = []
-        for i, (c_in, c_out) in enumerate(act1_channels[:-1],
-                                          act1_channels[1:]):
+        for i, (c_in, c_out) in epairwise(act1_channels):
             stride = (2 if i == 0 else 1)
             act1_layers.append(Conv2D(c_in, c_out, stride))
         self.action1 = nn.Sequential(*act1_layers)
-        self.action1e = Conv2D(64, 8)
+        self.action1e = Conv2D(64, 8, 1)
 
         # 64, 128, 128, 128, 128 (,16)
         act2_channels = (64, 128, 128, 128, 128)
         act2_layers = []
-        for i, (c_in, c_out) in enumerate(act2_channels[:-1],
-                                          act2_channels[1:]):
+        for i, (c_in, c_out) in epairwise(act2_channels):
             stride = (2 if i == 0 else 1)
             act2_layers.append(Conv2D(c_in, c_out, stride))
         self.action2 = nn.Sequential(*act2_layers)
-        self.action2e = Conv2D(128, 16)
+        self.action2e = Conv2D(128, 16, 1)
+
+        # MLP
+        # NOTE(ycho): last "object" is reserved for background.
+        mlp_channels = (128, 512, 512, 512, 512,
+                        self.num_params * (self.num_objects - 1))
+        mlp_layers = []
+        for i, (c_in, c_out) in epairwise(mlp_channels):
+            use_lrelu = (i != 5)
+            mlp_layers.append(nn.Linear(c_in, c_out))
+            if use_lrelu:
+                mlp_layers.append(nn.LeakyReLU(inplace=True))
+        self.mlp = nn.Sequential(*mlp_layers)
+
+        self.so3 = SO3()
+        self.motion_projector = MotionProjector(self.num_objects)
 
     def forward(self, inputs: Dict[str, th.Tensor]) -> th.Tensor:
+        """(clf, feature, [action]) -> motion.
+
+        clf:     Object occupancy probability, (B,K,W,L,H),
+            where K=number of object instances.
+        feature: Feature embedding, (B,D,W,L,H),
+            where D=128 state representation dimensionality.
+        action:  Action encoding, (B,A,W,L),
+            where A=8 discrete action bins.
+
+        motion: Motion vector prediction, (B,3,W,L,H)
+            stacked in axis 1 in the order of (dx,dy,dz).
+        """
         if not self.use_action:
-            action = th.zeros_like(x, size=(batch_size, 8, 128, 128))
+            action: th.Tensor = th.zeros_like(
+                x, size=(batch_size, 8, 128, 128))
         else:
-            action = inputs['action']
+            action: th.Tensor = inputs['action']
+        clf: th.Tensor = inputs['clf']
 
         # Action features at each dimensions
         action0 = action
@@ -287,35 +370,36 @@ class MotionPredictor(nn.Module):
         action2 = self.action2(action1)
 
         # Repeat action embeddings across +z dim.
-        action0e = th.unsqueeze(action0e, -1)
-        action0e = action0e.expand([-1, -1, -1, -1, 48])
-        action1e = th.unsqueeze(self.action1e(action1e), -1)
-        action1e = action1e.expand([-1, -1, -1, -1, 24])
-        action2e = th.unsqueeze(self.actino2e(action2e), -1)
-        action2e = action2e.expand([-1, -1, -1, -1, 12])
+        action0e = einops.repeat(action0, '... -> ... c', c=48)
+        action1e = einops.repeat(self.action1e(action1), '... -> ... c', c=24)
+        action2e = einops.repeat(self.action2e(action2), '... -> ... c', c=12)
 
         # Mask Features
         x = inputs['feature']
 
-        x = th.cat([x, action0], dim=1)
+        x = th.cat([x, action0e], dim=1)
         x = self.conv3d0(x)
-        dx0 = x # residual output
 
-        x = th.cat([x, action1], dim=1)
+        x = th.cat([x, action1e], dim=1)
         x = self.conv3d1(x)
-        dx1 = x # residual output
 
-        x = th.cat([x, action2], dim=1)
+        x = th.cat([x, action2e], dim=1)
         x = self.conv3d2(x)
+        x = self.conv3d3(x)  # -> should be Bx128x1x1x1
+        x = x.view(-1, 128)
+        x = self.mlp(x)  # Bx(NxP)
 
-        x = self.conv3d3(x)
-        x = self.conv3d4(x + dx1)
-        x = self.conv3d5(x + dx0)
-        x = self.conv3d6(x) # at this point, we have `motion_pred`
+        # NOTE(ycho): last "object" is reserved for background!
+        x = x.view(-1, self.num_objects - 1,
+                   self.num_params)  # Bx(N-1)xP
 
-        x = self.project(x)  # -> should be Bx128x1x1x1
-        x = x.squeeze(dim=(2, 3, 4))  # Bx128
-        x = self.transform_mlp(x)  # Bx(NxP)
-        x = x.reshape(-1, self.num_objects, self.num_params)  # BxNxP
+        params = x
+        rxn = self.so3(params[..., :3])  # Bx(N-1)x3x3
+        txn = params[..., 3:]  # Bx(N-1)x3
 
-        # NOTE(ycho): currently editing here
+        motion = self.motion_projector(dict(
+            clf=clf,
+            rxn=rxn,
+            txn=txn
+        ))
+        return motion
