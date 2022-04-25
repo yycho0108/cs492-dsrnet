@@ -195,6 +195,7 @@ class SceneEncoder(nn.Module):
 
 
 class MotionProjector(nn.Module):
+    """Project object-centric motion parameters to dense vector field."""
 
     def __init__(self, num_object: int):
         super().__init__()
@@ -206,13 +207,30 @@ class MotionProjector(nn.Module):
         self.num_object: int = num_object
 
     def forward(self, inputs: Dict[str, th.Tensor]) -> th.Tensor:
+        """Predict the motion vector field.
+
+        Args:
+            inputs: Dictionary with the following entries:
+                clf: Object occupancy probability, (B,K,W,H,D),
+                    where K=number of object instances.
+                txn: Translation vector, (B,K-1,3)
+                    where K=number of object instances.
+                rxn: Rotation parameters, (B,K-1,3)
+                    where K=number of object instances.
+
+        Returns:
+            Motion vector prediction, (B,3,W,H,D).
+                axis 1 represents coordinates in the order of (dx,dy,dz).
+        """
+
         K: int = self.num_object
         clf: th.Tensor = inputs['clf']  # ..., K, [... volume ...]
         txn: th.Tensor = inputs['txn']  # ..., 3
         rxn: th.Tensor = inputs['rxn']  # ..., 3x3
         device = clf.device
 
-        # Lots of shape manipulation and normalization w.r.t `clf`
+        # Occupancy probability of each object instance.
+        # NOTE(ycho): K-1, since the last channel is reserved for `background`.
         clf_object = th.narrow(clf, 1, 0, K - 1)  # clf[:, :K-1]
         voxel_count = einops.reduce(clf_object, 'b n ... -> b n', 'sum')
         # Sum of coordinates weighted by occupancy probabilities.
@@ -244,11 +262,21 @@ class MotionProjector(nn.Module):
 
 
 class SO3(nn.Module):
+    """Euler angle parameterization of the rotation matrix."""
+
     def __init__(self):
         super().__init__()
 
     def forward(self, x: th.Tensor) -> th.Tensor:
-        """Rotation matrix from euler angle parameterization."""
+        """Rotation matrix from euler angle parameterization.
+
+        Args:
+            x: Euler angles of shape (..., 3).
+                (roll,pitch,yaw) convention.
+        Returns:
+            Rotation matrix of shape (..., 3, 3),
+                R@x convention.
+        """
 
         c, s = th.cos(x), th.sin(x)
         cx, cy, cz = [c[..., i] for i in range(3)]
@@ -273,24 +301,19 @@ class MotionPredictor(nn.Module):
     """DSR-Net Motion Predictor.
 
     Predicts scene flow from scene representation and action embeddings.
-    Assumes motion_type \\in SE(3), which results in a combination of:
-    * mask_decoder = MaskDecoder(K)
-    * transform_decoder = TransformDecoder(se3euler, K-1)
-    * se3 = SE3(se3euler)
-
-    and the output looks like:
-    mask_feature = SceneEncoder(...)
-
-
-    ...
-    logit, mask = mask_decoder(mask_feature)
-
-    transform_param = transform_decoder(mask_feature, input_action)
-    trans_vec, rot_mat = se3(transform_param)
+    Uses euler angle parameterization internally.
     """
 
     def __init__(self, use_action: bool, num_objects: int = 5,
                  num_params: int = 6):
+        """
+        Args:
+            use_action: Whether `action` embeddings will be provided as input.
+                Otherwise, will generate a zero-filled tensor with same shape.
+            num_objects: Maximum number of object instances to predict.
+            num_params: The number of parameters for the transform encoding.
+                By default, uses 6 = (3 for translation, 3 for rotation).
+        """
         super().__init__()
         # NOTE(ycho): `use_action` is only `False`
         # while we don't have ActionEmbedding() implemented.
@@ -331,7 +354,9 @@ class MotionPredictor(nn.Module):
 
         # MLP
         # NOTE(ycho): last "object" is reserved for background.
-        mlp_channels = (128, 512, 512, 512, 512,
+        # WARN(ycho): 5x512 in the paper, 4x512 hidden layers in the author's
+        # code.
+        mlp_channels = (128, 512, 512, 512, 512, 512,
                         self.num_params * (self.num_objects - 1))
         mlp_layers = []
         for i, (c_in, c_out) in epairwise(mlp_channels):
@@ -345,17 +370,20 @@ class MotionPredictor(nn.Module):
         self.motion_projector = MotionProjector(self.num_objects)
 
     def forward(self, inputs: Dict[str, th.Tensor]) -> th.Tensor:
-        """(clf, feature, [action]) -> motion.
+        """Predict the motion vector field.
 
-        clf:     Object occupancy probability, (B,K,W,L,H),
-            where K=number of object instances.
-        feature: Feature embedding, (B,D,W,L,H),
-            where D=128 state representation dimensionality.
-        action:  Action encoding, (B,A,W,L),
-            where A=8 discrete action bins.
+        Args:
+            inputs: Dictionary with the following entries:
+                clf:     Object occupancy probability, (B,K,W,H,D),
+                    where K=number of object instances.
+                feature: Feature embedding, (B,S,W,H,D),
+                    where S=128 state representation dimensionality.
+                action:  Action encoding, (B,A,W,H,D),
+                    where A=8 discrete action bins.
 
-        motion: Motion vector prediction, (B,3,W,L,H)
-            stacked in axis 1 in the order of (dx,dy,dz).
+        Returns:
+            Motion vector prediction, (B,3,W,H,D).
+                axis 1 represents coordinates in the order of (dx,dy,dz).
         """
         if not self.use_action:
             action: th.Tensor = th.zeros_like(
@@ -391,11 +419,11 @@ class MotionPredictor(nn.Module):
 
         # NOTE(ycho): last "object" is reserved for background!
         x = x.view(-1, self.num_objects - 1,
-                   self.num_params)  # Bx(N-1)xP
+                   self.num_params)  # B,K-1,P
 
         params = x
-        rxn = self.so3(params[..., :3])  # Bx(N-1)x3x3
-        txn = params[..., 3:]  # Bx(N-1)x3
+        rxn = self.so3(params[..., :3])  # B,K-1,3,3
+        txn = params[..., 3:]  # B,K-1,3
 
         motion = self.motion_projector(dict(
             clf=clf,
