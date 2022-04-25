@@ -9,7 +9,7 @@ import torch as th
 from model import SceneEncoder
 
 
-class TestSceneEncoder(unittest.TestCase):
+class TestOps(unittest.TestCase):
     def test_narrow(self):
         seed: int = 0
         num_iter: int = 128
