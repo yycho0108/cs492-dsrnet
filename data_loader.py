@@ -2,6 +2,7 @@ import h5py
 import numpy as np
 from os import PathLike
 from pathlib import Path
+from torch.utils.data import Dataset
 from typing import Any, Dict, List, Union
 
 class DSRDataLoader:
@@ -61,10 +62,7 @@ class DSRDataLoader:
 
         return frame_list
 
-"""
 # Helper class for PyTorch Dataset API, which supports automatic batching
-from torch.utils.data import Dataset
-
 class DSRDataset(Dataset):
     def __init__(self, data_path: Union[str, PathLike], split: str, num_frames: int = 10):
         super(DSRDataset, self).__init__()
@@ -75,4 +73,3 @@ class DSRDataset(Dataset):
 
     def __getitem__(self, index):
         return self.data_loader.load_data(index)
-"""
