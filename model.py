@@ -360,7 +360,7 @@ class MotionPredictor(nn.Module):
         # NOTE(ycho): last "object" is reserved for background.
         # WARN(ycho): 5x512 in the paper, 4x512 hidden layers in the author's
         # code.
-        mlp_channels = (128, 512, 512, 512, 512, 512,
+        mlp_channels = (128, 512, 512, 512, 512,
                         self.num_params * (self.num_objects - 1))
         mlp_layers = []
         for i, (c_in, c_out) in epairwise(mlp_channels):
