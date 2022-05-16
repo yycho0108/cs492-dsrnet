@@ -10,3 +10,4 @@ numba==0.50.0
 numpy>=1.22
 scikit-image==0.16.2
 h5py==3.6.0
+einops>=0.4.1
