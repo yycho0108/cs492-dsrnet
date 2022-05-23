@@ -159,7 +159,7 @@ class SceneEncoder(nn.Module):
         enc_layers.append(Conv3DResBlock(128, 128))
         enc_layers.append(Conv3DResBlock(128, 128))
         split = enc_layers[:1], enc_layers[1:5], enc_layers[5:9], enc_layers[9:]
-        self.enc = [nn.Sequential(*l) for l in split]
+        self.enc = nn.ModuleList([nn.Sequential(*l) for l in split])
 
         # Decoder part
         dec_channels: Tuple[int, ...] = (128, 64, 64, 32, 32, 16, 16, 8, 8)
@@ -171,7 +171,7 @@ class SceneEncoder(nn.Module):
             use_up = (i in (0, 2, 4, 6))
             dec_layers.append(Conv3D(c_in, c_out, 1, use_up=use_up))
         split = dec_layers[:2], dec_layers[2:4], dec_layers[4:6], dec_layers[6:]
-        self.dec = [nn.Sequential(*l) for l in split]
+        self.dec = nn.ModuleList([nn.Sequential(*l) for l in split])
 
     def forward(self, inputs: Dict[str, th.Tensor]) -> th.Tensor:
         cur_obs = inputs['tsdf'][:, None]  # Bx1x128x128x48
@@ -247,13 +247,15 @@ class MotionProjector(nn.Module):
         # B (K-1) ... -> B K ...
         txn0 = th.zeros_like(txn[:, :1])
         txn = th.cat([txn, txn0], dim=1).unsqueeze(-1)
-        rxn0 = einops.repeat(th.eye(3, dtype=rxn.dtype),
+        rxn0 = einops.repeat(th.eye(3, dtype=rxn.dtype,
+                                    device=rxn.device),
                              'i o -> b k i o', b=rxn.shape[0], k=1)
         rxn = th.cat([rxn, rxn0], dim=1)
         piv0 = th.zeros_like(piv[:, :1])
         piv = th.cat([piv, piv0], dim=1).unsqueeze(-1)
 
-        xyz = einops.repeat(self.xyz, 'd x y z -> b k d (x y z)',
+        xyz = einops.repeat(self.xyz.to(device, dtype=clf_object.dtype),
+                            'd x y z -> b k d (x y z)',
                             b=rxn.shape[0], k=K)
         xyz2 = rxn @ (xyz - piv) + piv + txn
         motion = (xyz2 - xyz).view(*xyz.shape[:3], *self.xyz.shape[-3:])
@@ -390,8 +392,11 @@ class MotionPredictor(nn.Module):
                 axis 1 represents coordinates in the order of (dx,dy,dz).
         """
         if not self.use_action:
-            action: th.Tensor = th.zeros_like(
-                x, size=(batch_size, 8, 128, 128))
+            batch_size: int = inputs['feature'].shape[0]
+            action: th.Tensor = th.zeros(
+                size=(batch_size, 8, 128, 128),
+                dtype=th.float32,
+                device=inputs['feature'].device)
         else:
             action: th.Tensor = inputs['action']
         clf: th.Tensor = inputs['clf']
@@ -435,3 +440,64 @@ class MotionPredictor(nn.Module):
             txn=txn
         ))
         return motion
+
+
+class MaskPredictor(nn.Module):
+    """TODO(physsong)"""
+
+    def __init__(self, num_object: int):
+        super().__init__()
+        self.num_object = num_object
+        self.layer = nn.Conv3d(8, num_object, kernel_size=1)
+
+    def forward(self, x: th.Tensor) -> th.Tensor:
+        return self.layer(x)
+
+
+class DSRNet(nn.Module):
+    def __init__(self, use_warp: bool = False, use_action: bool = False,
+                 num_object: int = 5):
+        super().__init__()
+        # tsdf, prv_state -> cur_state
+        self.scene_encoder = SceneEncoder()
+        self.mask_predictor = MaskPredictor(num_object)
+        # clf, feature [, action] -> motion
+        # TODO(ycho): set `use_action` to True
+        self.motion_predictor = MotionPredictor(use_action, num_object)
+        # self.warp = SceneFlowWarper()
+        self.use_warp = use_warp
+
+    def forward(self, inputs: Dict[str, th.Tensor]) -> Dict[str, th.Tensor]:
+
+        # NOTE(ycho): initialize
+        # `prv_state` to all-zero tensor if not given.
+        if 'prv_state' not in inputs:
+            batch_size: int = inputs['tsdf'].shape[0]
+            inputs['prv_state'] = th.zeros(
+                size=[batch_size, 8, 128, 128, 48],
+                dtype=th.float32,
+                device=inputs['tsdf'].device)
+
+        state = self.scene_encoder(inputs)
+        logit = self.mask_predictor(state)
+        clf = F.softmax(logit, dim=1)  # TODO(ycho): temperature?
+
+        mp_inputs = dict(clf=clf, feature=state
+                         #,action=None
+                         )
+        motion = self.motion_predictor(mp_inputs)
+
+        outputs: Dict[str, th.Tensor] = {}
+        # outputs['logit'] = logit
+        outputs['motion'] = motion
+        if not self.use_warp:
+            outputs['state'] = state
+        elif 'motion' in inputs:
+            warp_mask: th.Tensor = None
+            outputs['state'] = self.warp(state,
+                                        inputs['motion'], warp_mask)
+        else:
+            warp_mask: th.Tensor = None
+            outputs['state'] = self.warp(state,
+                                        motion, warp_mask)
+        return outputs
