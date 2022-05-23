@@ -47,11 +47,14 @@ def main():
         # lr = adjust_learning_rate(...)
         for data in tqdm(loader, leave=False, desc='batch'):
             # Formatted as TxBx[...]
+            prv_state = None
             for i in range(cfg.num_frames):
                 inputs = data[i]
+                if prv_state is not None:
+                    inputs['prv_state'] = prv_state
                 outputs = model({k: v.to(device) for k, v in inputs.items()})
                 #inputs['motion'] = inputs['scene_flow_3d']
-                inputs['prv_state'] = outputs['state'].detach()
+                prv_state = outputs['state'].detach()
                 loss = motion_loss(outputs['motion'],
                                    inputs['scene_flow_3d'].to(device))
                 print(F'loss = {loss.item()}')
