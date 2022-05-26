@@ -97,11 +97,10 @@ def main():
                 if prv_state is not None:
                     inputs['prv_state'] = prv_state
                 outputs = model({k: v.to(device) for k, v in inputs.items()})
-                #inputs['motion'] = inputs['scene_flow_3d']
                 prv_state = outputs['state'].detach()
                 loss_motion = motion_loss(outputs['motion'],
                                           inputs['scene_flow_3d'].to(device))
-                loss_mask, mask_order = motion_loss(
+                loss_mask, mask_order = mask_loss(
                     outputs['logit'],
                     inputs['mask_3d'].to(device),
                     mask_order)
