@@ -69,7 +69,6 @@ def scatter_interpolate_cuda(feature, new_coord):
     }
     '''
     f = RawKernel(kernel, 'scatter_interpolate')
-    Stream = namedtuple('Stream', ['ptr'])
 
     B, C, W, H, D = feature.size()
 
