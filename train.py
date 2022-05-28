@@ -25,6 +25,10 @@ class Config:
     # Use action embeddings as inputs.
     use_action: bool = False
     device: str = 'cuda'
+    # Weight for motion loss
+    loss_motion_weight: float = 1.0
+    # Weight for mask loss
+    loss_mask_weight: float = 5.0
 
 def mask_loss(
     logit: th.Tensor,
@@ -86,6 +90,9 @@ def main():
     optimizer = th.optim.Adam(model.parameters())
     motion_loss = nn.MSELoss()
 
+    loss_motion_weight = cfg.loss_motion_weight
+    loss_mask_weight = cfg.loss_mask_weight
+
     for epoch in tqdm(range(cfg.num_epoch), desc='epoch'):
         # lr = adjust_learning_rate(...)
         for data in tqdm(loader, leave=False, desc='batch'):
@@ -104,7 +111,7 @@ def main():
                     outputs['logit'],
                     inputs['mask_3d'].to(device),
                     mask_order)
-                loss = loss_motion + loss_mask # TODO weight two losses before add
+                loss = loss_motion_weight * loss_motion + loss_mask_weight * loss_mask
                 print(F'loss = {loss.item()}')
                 optimizer.zero_grad()
                 loss.backward()
