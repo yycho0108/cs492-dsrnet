@@ -51,7 +51,7 @@ def mask_loss(
         # CrossEntropyLoss on logits is equivalent to NLL on softmax result
         logit_permuted = th.stack(
             [logit[b:b+1, -1]] + [logit[b:b+1, i] for i in permutation], dim=1)
-        return nn.CrossEntropyLoss()(logit_permuted, mask_gt[b:b + 1])
+        return F.cross_entropy(logit_permuted, mask_gt[b:b + 1])
     loss = 0
     B, K, S1, S2, S3 = logit.size()
     best_mask_order = []
