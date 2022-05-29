@@ -488,7 +488,7 @@ class DSRNet(nn.Module):
         motion = self.motion_predictor(mp_inputs)
 
         outputs: Dict[str, th.Tensor] = {}
-        # outputs['logit'] = logit
+        outputs['logit'] = logit
         outputs['motion'] = motion
         if not self.use_warp:
             outputs['state'] = state
