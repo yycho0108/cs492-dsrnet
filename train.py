@@ -112,17 +112,12 @@ def add_tensorboard_graph(model: nn.Module, loader: DataLoader,
     try:
         train_mode = model.training
         model.train(False)
-        # data = dataset[0][0]
         data = iter(loader).next()[0]
-        #data = {k: th.as_tensor(v).to(device)[None]
-        #        for k, v in data.items()}
-        #data['prv_state'] = th.zeros(
-        #    size=[1, 8, 128, 128, 48],
-        #    dtype=th.float32,
-        #    device=data['tsdf'].device)
-
         keys = sorted(list(data.keys()))
 
+        # NOTE(ycho): We need to do this workaround
+        # because in torch < 1.10, the tracer
+        # fails to track `dict`-valued inputs and outputs.
         class DummyModel(nn.Module):
             def __init__(self, model: nn.Module):
                 super().__init__()
@@ -148,6 +143,7 @@ def main():
     index = len([d for d in root.glob('run-*') if d.is_dir()])
     path = _ensure_dir(Path(cfg.path) / F'run-{index:03d}')
     log_path = _ensure_dir(path / 'log')
+    print(F'Runtime path = {path}')
 
     device = th.device(cfg.device)
     dataset = DSRDataset(cfg.data_path, 'train', cfg.num_frames)
