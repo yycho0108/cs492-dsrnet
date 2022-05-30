@@ -18,7 +18,7 @@ def epairwise(seq: Iterable):
     return enumerate(pairwise(seq))
 
 
-class Conv3D(nn.Module):
+class Conv3D3x3(nn.Module):
     """General 3D Convolution block, with 3x3x3 kernel."""
 
     def __init__(self,
@@ -62,8 +62,8 @@ class Conv3D(nn.Module):
         return self.layers(x)
 
 
-class Conv2D(nn.Module):
-    """General 3D Convolution block, with 3x3 kernel."""
+class Conv2D3x3(nn.Module):
+    """General 2D Convolution block, with 3x3 kernel."""
 
     def __init__(self,
                  c_in: int,
@@ -155,7 +155,7 @@ class SceneEncoder(nn.Module):
         enc_layers: List[nn.Module] = []
         for i, (c_in, c_out) in epairwise(enc_channels):
             stride = (2 if (i in (0, 1, 5, 9)) else 1)
-            enc_layers.append(Conv3D(c_in, c_out, stride))
+            enc_layers.append(Conv3D3x3(c_in, c_out, stride))
         enc_layers.append(Conv3DResBlock(128, 128))
         enc_layers.append(Conv3DResBlock(128, 128))
         split = enc_layers[:1], enc_layers[1:5], enc_layers[5:9], enc_layers[9:]
@@ -169,11 +169,14 @@ class SceneEncoder(nn.Module):
             # Concatenate skip connections
             c_in += residual_inputs.get(i, 0)
             use_up = (i in (0, 2, 4, 6))
-            dec_layers.append(Conv3D(c_in, c_out, 1, use_up=use_up))
+            dec_layers.append(Conv3D3x3(c_in, c_out, 1, use_up=use_up))
         split = dec_layers[:2], dec_layers[2:4], dec_layers[4:6], dec_layers[6:]
         self.dec = nn.ModuleList([nn.Sequential(*l) for l in split])
 
     def forward(self, inputs: Dict[str, th.Tensor]) -> th.Tensor:
+        # FIXME(ycho): for some reason _always_
+        # requires a batch dimension to be available,
+        # even if B==1.
         cur_obs = inputs['tsdf'][:, None]  # Bx1x128x128x48
         prv_state = inputs['prv_state']  # Bx8x128x128x48
 
@@ -327,16 +330,16 @@ class MotionPredictor(nn.Module):
         self.num_objects: int = num_objects
         self.num_params: int = num_params
 
-        self.conv3d0 = Conv3D(8 + 8, 8, 2)
-        self.conv3d1 = Conv3D(8 + 8, 16, 2)
+        self.conv3d0 = Conv3D3x3(8 + 8, 8, 2)
+        self.conv3d1 = Conv3D3x3(8 + 8, 16, 2)
         self.conv3d2 = nn.Sequential(*[
-            Conv3D(i, o, s) for
+            Conv3D3x3(i, o, s) for
             (i, o), s in zip(pairwise(
                 [16 + 16, 32, 32, 32, 64]), (2, 1, 1, 1))])
 
         self.conv3d3 = nn.Sequential(
-            Conv3D(64, 128, 2),
-            Conv3D(128, 128, 2),
+            Conv3D3x3(64, 128, 2),
+            Conv3D3x3(128, 128, 2),
             nn.Conv3d(128, 128, kernel_size=(4, 4, 2))
         )
 
@@ -345,18 +348,18 @@ class MotionPredictor(nn.Module):
         act1_layers = []
         for i, (c_in, c_out) in epairwise(act1_channels):
             stride = (2 if i == 0 else 1)
-            act1_layers.append(Conv2D(c_in, c_out, stride))
+            act1_layers.append(Conv2D3x3(c_in, c_out, stride))
         self.action1 = nn.Sequential(*act1_layers)
-        self.action1e = Conv2D(64, 8, 1)
+        self.action1e = Conv2D3x3(64, 8, 1)
 
         # 64, 128, 128, 128, 128 (,16)
         act2_channels = (64, 128, 128, 128, 128)
         act2_layers = []
         for i, (c_in, c_out) in epairwise(act2_channels):
             stride = (2 if i == 0 else 1)
-            act2_layers.append(Conv2D(c_in, c_out, stride))
+            act2_layers.append(Conv2D3x3(c_in, c_out, stride))
         self.action2 = nn.Sequential(*act2_layers)
-        self.action2e = Conv2D(128, 16, 1)
+        self.action2e = Conv2D3x3(128, 16, 1)
 
         # MLP
         # NOTE(ycho): last "object" is reserved for background.
@@ -468,7 +471,6 @@ class DSRNet(nn.Module):
         self.use_warp = use_warp
 
     def forward(self, inputs: Dict[str, th.Tensor]) -> Dict[str, th.Tensor]:
-
         # NOTE(ycho): initialize
         # `prv_state` to all-zero tensor if not given.
         if 'prv_state' not in inputs:
@@ -495,9 +497,9 @@ class DSRNet(nn.Module):
         elif 'motion' in inputs:
             warp_mask: th.Tensor = None
             outputs['state'] = self.warp(state,
-                                        inputs['motion'], warp_mask)
+                                         inputs['motion'], warp_mask)
         else:
             warp_mask: th.Tensor = None
             outputs['state'] = self.warp(state,
-                                        motion, warp_mask)
+                                         motion, warp_mask)
         return outputs
