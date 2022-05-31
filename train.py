@@ -24,9 +24,9 @@ class Config:
     batch_size: int = 2
     num_epoch: int = 30
     # Use scene warping layer.
-    use_warp: bool = False
+    use_warp: bool = True
     # Use action embeddings as inputs.
-    use_action: bool = False
+    use_action: bool = True
     device: str = 'cuda'
     # Weight for motion loss
     loss_motion_weight: float = 1.0
