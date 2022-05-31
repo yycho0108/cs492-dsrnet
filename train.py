@@ -161,7 +161,7 @@ def main():
 
     # Add tensorboard graph visualization
     # by converting inputs/outputs to a dummy model.
-    add_tensorboard_graph(model, loader, writer, device)
+    # add_tensorboard_graph(model, loader, writer, device)
     loss_motion_weight = cfg.loss_motion_weight
     loss_mask_weight = cfg.loss_mask_weight
 
