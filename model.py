@@ -1,3 +1,4 @@
+from forward_warp import forward_warp
 
 import itertools
 import torch as th
@@ -467,7 +468,7 @@ class DSRNet(nn.Module):
         # clf, feature [, action] -> motion
         # TODO(ycho): set `use_action` to True
         self.motion_predictor = MotionPredictor(use_action, num_object)
-        # self.warp = SceneFlowWarper()
+        self.warp = forward_warp
         self.use_warp = use_warp
 
     def forward(self, inputs: Dict[str, th.Tensor]) -> Dict[str, th.Tensor]:
@@ -484,22 +485,19 @@ class DSRNet(nn.Module):
         logit = self.mask_predictor(state)
         clf = F.softmax(logit, dim=1)  # TODO(ycho): temperature?
 
-        mp_inputs = dict(clf=clf, feature=state
-                         #,action=None
-                         )
+        mp_inputs = dict(clf=clf, feature=state, action=inputs['action'])
         motion = self.motion_predictor(mp_inputs)
 
         outputs: Dict[str, th.Tensor] = {}
         outputs['logit'] = logit
         outputs['motion'] = motion
+        warp_mask = th.sum(clf[:, :-1, ...], dim=1)
         if not self.use_warp:
             outputs['state'] = state
         elif 'motion' in inputs:
-            warp_mask: th.Tensor = None
             outputs['state'] = self.warp(state,
                                          inputs['motion'], warp_mask)
         else:
-            warp_mask: th.Tensor = None
             outputs['state'] = self.warp(state,
                                          motion, warp_mask)
         return outputs

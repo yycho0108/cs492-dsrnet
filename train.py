@@ -24,9 +24,9 @@ class Config:
     batch_size: int = 2
     num_epoch: int = 30
     # Use scene warping layer.
-    use_warp: bool = False
+    use_warp: bool = True
     # Use action embeddings as inputs.
-    use_action: bool = False
+    use_action: bool = True
     device: str = 'cuda'
     # Weight for motion loss
     loss_motion_weight: float = 1.0
@@ -161,7 +161,7 @@ def main():
 
     # Add tensorboard graph visualization
     # by converting inputs/outputs to a dummy model.
-    add_tensorboard_graph(model, loader, writer, device)
+    # add_tensorboard_graph(model, loader, writer, device)
     loss_motion_weight = cfg.loss_motion_weight
     loss_mask_weight = cfg.loss_mask_weight
 

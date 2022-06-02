@@ -2,7 +2,7 @@ from collections import namedtuple
 from cupy import RawKernel
 import numpy as np
 import torch as th
-from torch.autograd.function import Function
+from torch.autograd.function import Function, once_differentiable
 
 Stream = namedtuple('Stream', ['ptr'])
 def get_current_cuda_stream():
