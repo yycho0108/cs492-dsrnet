@@ -36,6 +36,7 @@ class Config:
     # Weight for mask loss
     loss_mask_weight: float = 5.0
     load_ckpt_file: Optional[str] = None
+    load_optimizer: bool = True
     path: str = '/tmp/dsr'
 
 
@@ -106,7 +107,7 @@ def load_ckpt(ckpt_file: str, model: nn.Module,
     save_dict = th.load(str(ckpt_file))
     model.load_state_dict(save_dict['model'])
     if optimizer is not None:
-        optimizer.load_state_dict(save_dict['model'])
+        optimizer.load_state_dict(save_dict['optimizer'])
 
 
 def add_tensorboard_graph(model: nn.Module, loader: DataLoader,
@@ -195,7 +196,10 @@ def main():
 
     # Optionally load checkpoint.
     if cfg.load_ckpt_file is not None:
-        load_ckpt(cfg.load_ckpt_file, model, optimizer)
+        if cfg.load_optimizer:
+            load_ckpt(cfg.load_ckpt_file, model, optimizer)
+        else:
+            load_ckpt(cfg.load_ckpt_file, model, None)
 
     # Train.
     try:
