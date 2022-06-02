@@ -20,7 +20,10 @@ from model import DSRNet
 @dataclass
 class Config:
     data_path: str = '/media/ssd/datasets/DSR/real_test_data/'
+    # The number of frames in a sequence
     num_frames: int = 10
+    # The length of subsequences
+    subseq_len: int = 10
     batch_size: int = 2
     num_epoch: int = 30
     # Use scene warping layer.
@@ -146,10 +149,11 @@ def main():
     print(F'Runtime path = {path}')
 
     device = th.device(cfg.device)
-    dataset = DSRDataset(cfg.data_path, 'train', cfg.num_frames)
+    dataset = DSRDataset(cfg.data_path, 'train', cfg.num_frames, cfg.subseq_len)
     loader = DataLoader(
         dataset=dataset,
-        batch_size=cfg.batch_size
+        batch_size=cfg.batch_size,
+        shuffle=True,
     )
 
     model = DSRNet(cfg.use_warp, cfg.use_action)
@@ -169,7 +173,7 @@ def main():
         # Formatted as TxBx[...]
         prv_state = None
         mask_order = None
-        for i in range(cfg.num_frames):
+        for i in range(cfg.subseq_len):
             inputs = data[i]
             if prv_state is not None:
                 inputs['prv_state'] = prv_state
@@ -187,7 +191,7 @@ def main():
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        return step + cfg.num_frames
+        return step + cfg.subseq_len
 
     # Optionally load checkpoint.
     if cfg.load_ckpt_file is not None:
