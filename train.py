@@ -152,7 +152,8 @@ def main():
     dataset = DSRDataset(cfg.data_path, 'train', cfg.num_frames, cfg.subseq_len)
     loader = DataLoader(
         dataset=dataset,
-        batch_size=cfg.batch_size
+        batch_size=cfg.batch_size,
+        shuffle=True,
     )
 
     model = DSRNet(cfg.use_warp, cfg.use_action)
