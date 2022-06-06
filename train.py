@@ -38,6 +38,8 @@ class Config:
     load_ckpt_file: Optional[str] = None
     load_optimizer: bool = True
     path: str = '/tmp/dsr'
+    lr: float = 0.001
+    lr_decay_steps: int = 5
 
 
 def _ensure_dir(path: Union[str, PathLike]) -> Path:
@@ -160,7 +162,8 @@ def main():
     model = DSRNet(cfg.use_warp, cfg.use_action)
     model = model.to(device)
 
-    optimizer = th.optim.Adam(model.parameters())
+    optimizer = th.optim.Adam(model.parameters(), cfg.lr, betas=(0.9, 0.95))
+    lr_scheduler = th.optim.lr_scheduler.StepLR(optimizer, cfg.lr_decay_steps, 0.5)
     motion_loss = nn.MSELoss()
     writer = SummaryWriter(log_path)
 
@@ -210,6 +213,7 @@ def main():
             with tqdm(loader, leave=False, desc='batch') as pbar:
                 for data in pbar:
                     step = _train_step(pbar, data, step)
+            lr_scheduler.step()
             save_ckpt(F'{path}/dsr-{epoch:03d}.pt', model, optimizer)
     finally:
         save_ckpt(F'{path}/dsr-last.pt', model, optimizer)
