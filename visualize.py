@@ -3,7 +3,7 @@
 
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Iterable, Union
+from typing import Iterable, Union, Optional
 from tqdm.auto import tqdm
 from model import DSRNet
 import open3d as o3d
@@ -31,7 +31,7 @@ class Config:
 
 def flow_to_image(
         flow: Union[np.ndarray, th.Tensor],
-        max_flow=None, cfirst=False) -> np.ndarray:
+        max_flow: Optional[float] = None, eps: float = 1e-3) -> np.ndarray:
     flow = flow[:2]  # take x-y parts only
     if isinstance(flow, th.Tensor):
         flow = flow.detach().cpu().numpy()
@@ -39,21 +39,20 @@ def flow_to_image(
     x = flow[0]
     y = flow[1]
 
+    # Project to 2D.
+    # NOTE(ycho): somewhat hacky ...
     x = x.mean(axis=-1)
     y = y.mean(axis=-1)
-    # # rho = rho.mean(axis=-1)
-    # theta = theta.mean(axis=-1)
     rho, theta = cv2.cartToPolar(x, y)
 
     if max_flow is None:
-        max_flow = np.maximum(np.max(rho), 1e-6)
+        max_flow = np.maximum(np.max(rho), eps)
 
     hsv = np.zeros(list(rho.shape) + [3], dtype=np.uint8)
     hsv[..., 0] = theta * 90 / np.pi
     hsv[..., 1] = 255
     hsv[..., 2] = np.minimum(rho / max_flow, 1) * 255
 
-    # hsv = hsv.max(axis=2).astype(np.uint8)
     im = cv2.cvtColor(hsv, code=cv2.COLOR_HSV2RGB)
     return im
 
