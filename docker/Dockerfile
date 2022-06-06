@@ -25,3 +25,11 @@ RUN pip3 install --upgrade wheel setuptools Cython
 # Install python requirements.
 COPY requirements.txt /tmp/requirements.txt
 RUN pip3 install -r /tmp/requirements.txt
+
+RUN apt-get update && \
+    apt-get install -y \
+    libgl1-mesa-glx \
+    && rm -rf /var/lib/apt-lists/*
+
+RUN python3 -m pip install open3d
+

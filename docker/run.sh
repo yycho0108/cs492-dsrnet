@@ -15,8 +15,10 @@ REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
 # * Current working git repository mounted at /root
 docker run -it --rm \
     --mount type=bind,source=${REPO_ROOT},target="/root/$(basename ${REPO_ROOT})" \
+    --mount type=bind,source=/tmp/,target="/tmp/host/" \
+    --mount type=bind,source=/media/ssd/datasets/DSR,target="/media/ssd/datasets/DSR" \
+    -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix \
     --network host \
-    --privileged \
     --gpus all \
     "$@" \
     "${IMAGE_TAG}"
