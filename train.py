@@ -194,6 +194,8 @@ def main():
                 mask_order)
             loss = loss_motion_weight * loss_motion + loss_mask_weight * loss_mask
             writer.add_scalar('loss', loss.item(), step + i)
+            writer.add_scalar('loss_motion', loss_motion.item(), step + i)
+            writer.add_scalar('loss_mask', loss_mask.item(), step + i)
             pbar.set_postfix_str(F'loss={loss.item():03f}')
             optimizer.zero_grad()
             loss.backward()
