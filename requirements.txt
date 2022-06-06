@@ -13,3 +13,4 @@ h5py==3.6.0
 einops>=0.4.1
 tqdm
 simple-parsing
+cupy
