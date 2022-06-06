@@ -2,6 +2,8 @@
 
 * [Paper Link](https://arxiv.org/abs/2011.01968)
 
+Link to pretrained model: [link](https://drive.google.com/file/d/1XzphagKtcWKc3fsevomaUqljIPkPN7Qc/view?usp=sharing)
+
 ## Authors
 
 * [Yoonyoung cho](https://github.com/yycho0108)
