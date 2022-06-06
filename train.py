@@ -61,6 +61,7 @@ def mask_loss(
         logit: [B, K, S1, S2, S3], the mask predictor output logit(K-1 is none)
         mask_gt: [B, S1, S2, S3], the ground truth mask index(0 is none)
         mask_order: mask_order[b] is the permutation tuple of object in batch b(length K-1)
+    NOTE: this function returns the average over batch, to be consistent with the motion loss
     """
     def loss_for_permutation(
         logit: th.Tensor,
@@ -89,6 +90,8 @@ def mask_loss(
         # If mask_order is not provided, use the best one
         if input_permutation is None:
             loss += best_loss
+    # Sum -> Average
+    loss /= B
     return loss, best_mask_order
 
 
